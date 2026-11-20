@@ -7,12 +7,18 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.droidinspector.core.components.PlaceholderScreen
+import com.droidinspector.feature.battery.BatteryScreen
+import com.droidinspector.feature.battery.BatteryViewModel
 import com.droidinspector.feature.dashboard.DashboardScreen
 import com.droidinspector.feature.dashboard.DashboardViewModel
+import com.droidinspector.feature.hardware.HardwareScreen
+import com.droidinspector.feature.hardware.HardwareViewModel
+import com.droidinspector.feature.storage.StorageScreen
+import com.droidinspector.feature.storage.StorageViewModel
 
 /**
  * Graphe de navigation de l'application Droid Inspector X.
- * Seul le Dashboard est actif lors de cette étape, les autres écrans sont des Placeholders.
+ * Actifs : Dashboard, Hardware, Batterie et Stockage. Les autres écrans sont encore des Placeholders.
  * Signature : @Bienvenu
  */
 @Composable
@@ -33,10 +39,12 @@ fun NavGraph(
             )
         }
         composable(Screen.Hardware.route) {
-            PlaceholderScreen(title = Screen.Hardware.title)
+            val hardwareViewModel: HardwareViewModel = hiltViewModel()
+            HardwareScreen(viewModel = hardwareViewModel)
         }
         composable(Screen.Battery.route) {
-            PlaceholderScreen(title = Screen.Battery.title)
+            val batteryViewModel: BatteryViewModel = hiltViewModel()
+            BatteryScreen(viewModel = batteryViewModel)
         }
         composable(Screen.Sensors.route) {
             PlaceholderScreen(title = Screen.Sensors.title)
@@ -45,7 +53,8 @@ fun NavGraph(
             PlaceholderScreen(title = Screen.Applications.title)
         }
         composable(Screen.Storage.route) {
-            PlaceholderScreen(title = Screen.Storage.title)
+            val storageViewModel: StorageViewModel = hiltViewModel()
+            StorageScreen(viewModel = storageViewModel)
         }
         composable(Screen.System.route) {
             PlaceholderScreen(title = Screen.System.title)

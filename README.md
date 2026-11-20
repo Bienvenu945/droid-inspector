@@ -112,6 +112,10 @@ L'APK généré sera accessible dans : `app/build/outputs/apk/debug/app-debug.ap
 - **Application** : DROID INSPECTOR X
 - **Version** : 1.0.0 (Phase 1 — Foundation)
 
+## Phase 3 — vraies mesures
+
+Les écrans **Hardware**, **Batterie** et **Stockage** affichent maintenant des valeurs lues sur l'appareil, sans permission supplémentaire. Quand Android n'expose pas une valeur (fréquences CPU, courant, cycles…), l'écran l'indique au lieu d'inventer un chiffre.
+
 ## Build
 
 ```bash

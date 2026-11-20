@@ -13,30 +13,41 @@ data class DeviceSummary(
     val radioVersion: String
 )
 
+/** Real battery readings. A null value means the phone does not expose it. */
 data class BatteryInfo(
     val percentage: Int,
     val isCharging: Boolean,
-    val chargingSource: String, // AC, USB, Wireless
-    val health: String, // Good, Overheat, Dead, Over Voltage
-    val technology: String, // Li-ion, Li-poly
+    val chargingSource: String,
+    val health: String,
+    val technology: String,
     val temperatureCelsius: Float,
     val voltageMilliVolts: Int,
-    val capacityMah: Int = 4500
+    val currentNowMicroAmps: Long? = null,
+    val chargeCounterMicroAmpHours: Long? = null,
+    val cycleCount: Int? = null
+)
+
+/** One CPU core. Frequencies are null when the kernel does not let apps read them. */
+data class CpuCore(
+    val index: Int,
+    val minFrequencyMhz: Long?,
+    val maxFrequencyMhz: Long?
 )
 
 data class HardwareInfo(
+    val socName: String,
     val cpuArchitecture: String,
     val abiList: List<String>,
     val coreCount: Int,
-    val minFrequencyMhz: Long,
-    val maxFrequencyMhz: Long,
+    val cores: List<CpuCore>,
     val ramTotalBytes: Long,
     val ramAvailableBytes: Long,
+    val swapTotalBytes: Long?,
+    val swapFreeBytes: Long?,
     val screenResolution: String,
     val screenDensityDpi: Int,
     val screenRefreshRateHz: Float,
-    val gpuVendor: String,
-    val gpuRenderer: String
+    val openGlEsVersion: String
 )
 
 data class SensorInfo(
@@ -52,14 +63,20 @@ data class SensorInfo(
     val currentValues: List<Float> = emptyList()
 )
 
+data class StorageVolumeInfo(
+    val label: String,
+    val path: String,
+    val totalBytes: Long,
+    val availableBytes: Long
+) {
+    val usedBytes: Long get() = totalBytes - availableBytes
+}
+
 data class StorageInfo(
     val totalBytes: Long,
     val availableBytes: Long,
     val usedBytes: Long,
-    val isRemovable: Boolean = false,
-    val appsUsageBytes: Long = 0L,
-    val mediaUsageBytes: Long = 0L,
-    val systemUsageBytes: Long = 0L
+    val volumes: List<StorageVolumeInfo> = emptyList()
 )
 
 data class AppPackageInfo(

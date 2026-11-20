@@ -1,70 +1,98 @@
 package com.droidinspector.feature.storage
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.droidinspector.core.components.GlassCard
+import com.droidinspector.core.components.InfoRow
+import com.droidinspector.core.components.LoadingPane
 import com.droidinspector.core.components.MetricGauge
+import com.droidinspector.core.components.ScreenHeader
 import com.droidinspector.core.components.SectionHeader
+import com.droidinspector.core.theme.BackgroundDark
 import com.droidinspector.core.theme.EmeraldPrimary
 import com.droidinspector.core.theme.TextMutedDark
+import com.droidinspector.core.utils.formatBytes
+import com.droidinspector.core.utils.percentOf
+import com.droidinspector.domain.model.StorageInfo
 
+/**
+ * Storage Analyzer: real totals per volume, read with StatFs.
+ * Signature : @Bienvenu
+ */
 @Composable
 fun StorageScreen(
-    navController: NavController,
+    viewModel: StorageViewModel,
     modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
+    val info = viewModel.uiState.collectAsState().value
 
+    Box(modifier = modifier.fillMaxSize().background(BackgroundDark)) {
+        if (info == null) {
+            LoadingPane()
+        } else {
+            StorageContent(info = info, onRefresh = { viewModel.refresh() })
+        }
+    }
+}
+
+@Composable
+private fun StorageContent(info: StorageInfo, onRefresh: () -> Unit) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour", tint = EmeraldPrimary)
-            }
-            Text(
-                text = "Storage Analyzer",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+            ScreenHeader(
+                title = "Storage Analyzer",
+                subtitle = "Espace réel par volume",
+                modifier = Modifier.weight(1f)
             )
+            TextButton(onClick = onRefresh) {
+                Text(text = "Actualiser", color = EmeraldPrimary, fontSize = 13.sp)
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Big Circular Storage Gauge
         GlassCard(contentPadding = 24.dp) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 MetricGauge(
-                    value = 62.4f,
+                    value = percentOf(info.usedBytes, info.totalBytes),
                     size = 140.dp,
                     strokeWidth = 12.dp,
                     label = "Occupé"
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "159.7 Go utilisés sur 256.0 Go (96.3 Go libres)",
+                    text = formatBytes(info.usedBytes) + " utilisés sur " + formatBytes(info.totalBytes) +
+                        " (" + formatBytes(info.availableBytes) + " libres)",
                     fontSize = 13.sp,
                     color = EmeraldPrimary,
                     fontWeight = FontWeight.Medium
@@ -72,48 +100,31 @@ fun StorageScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        SectionHeader("Répartition par Catégorie", "Analyse de l'espace de stockage interne")
-
+        SectionHeader("Volumes", "Lus avec StatFs, sans aucune permission")
         GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                StorageCategoryRow("Applications & Données", "64.8 Go", "40.5%")
-                StorageCategoryRow("Photos & Vidéos", "48.2 Go", "30.1%")
-                StorageCategoryRow("Musique & Audio", "12.5 Go", "7.8%")
-                StorageCategoryRow("Système Android 15", "18.2 Go", "11.4%")
-                StorageCategoryRow("Fichiers Téléchargés", "9.6 Go", "6.0%")
-                StorageCategoryRow("Fichiers Cache Temporaires", "6.4 Go", "4.0%")
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                info.volumes.forEach { volume ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        InfoRow(
+                            volume.label,
+                            formatBytes(volume.usedBytes) + " / " + formatBytes(volume.totalBytes)
+                        )
+                        Text(
+                            text = volume.path + " · " + formatBytes(volume.availableBytes) + " libres",
+                            color = TextMutedDark,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        SectionHeader("Système de Fichiers & Partitions", "Points de montage accessibles via StatFs")
-
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StorageCategoryRow("Partition /data", "238.4 Go (ext4 / f2fs)", "Primaire")
-                StorageCategoryRow("RAM Swap / zram0", "8.0 Go (Compressé)", "Actif")
-                StorageCategoryRow("Stockage Externe (MicroSD)", "Non inséré", "N/A")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-    }
-}
-
-@Composable
-fun StorageCategoryRow(label: String, size: String, percentage: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column {
-            Text(text = label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(text = percentage, color = TextMutedDark, fontSize = 11.sp)
-        }
-        Text(text = size, color = EmeraldPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = "La répartition par catégorie (applications, photos…) demande une autorisation " +
+                "d'accès aux statistiques d'usage. Elle sera proposée dans une phase ultérieure, " +
+                "uniquement avec ton accord.",
+            color = TextMutedDark,
+            fontSize = 11.sp
+        )
     }
 }

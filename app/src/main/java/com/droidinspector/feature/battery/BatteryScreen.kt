@@ -1,73 +1,85 @@
 package com.droidinspector.feature.battery
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.droidinspector.core.components.GlassCard
+import com.droidinspector.core.components.InfoRow
+import com.droidinspector.core.components.LoadingPane
 import com.droidinspector.core.components.MetricGauge
+import com.droidinspector.core.components.ScreenHeader
 import com.droidinspector.core.components.SectionHeader
+import com.droidinspector.core.theme.BackgroundDark
 import com.droidinspector.core.theme.EmeraldPrimary
 import com.droidinspector.core.theme.TextMutedDark
+import com.droidinspector.domain.model.BatteryInfo
+import java.util.Locale
 
+/**
+ * Battery Monitor: live readings from BatteryManager.
+ * Values the phone does not expose are shown as such, never invented.
+ * Signature : @Bienvenu
+ */
 @Composable
 fun BatteryScreen(
-    navController: NavController,
+    viewModel: BatteryViewModel,
     modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
+    val info = viewModel.uiState.collectAsState().value
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour", tint = EmeraldPrimary)
-            }
-            Text(
-                text = "Battery Monitor",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
+    Box(modifier = modifier.fillMaxSize().background(BackgroundDark)) {
+        if (info == null) {
+            LoadingPane()
+        } else {
+            BatteryContent(info = info)
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(16.dp))
+@Composable
+private fun BatteryContent(info: BatteryInfo) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        ScreenHeader(
+            title = "Battery Monitor",
+            subtitle = "Mesures en direct issues de BatteryManager"
+        )
 
-        // Big Animated Battery Centerpiece
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = 24.dp
-        ) {
+        GlassCard(contentPadding = 24.dp) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 MetricGauge(
-                    value = 84f,
+                    value = info.percentage.toFloat(),
                     size = 140.dp,
                     strokeWidth = 12.dp,
-                    label = "Capacité"
+                    label = "Niveau"
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "En décharge · Autonomie estimée: 14h 20m",
+                    text = if (info.isCharging) "En charge · " + info.chargingSource else "Sur batterie",
                     fontSize = 13.sp,
                     color = EmeraldPrimary,
                     fontWeight = FontWeight.Medium
@@ -75,34 +87,55 @@ fun BatteryScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        SectionHeader("État et Diagnostics de l'Accumulateur", "Données officielles issues de BatteryManager")
-
+        SectionHeader("État de l'accumulateur", "Rafraîchi automatiquement")
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                BatteryDetailRow("Santé de la Batterie", "Bonne santé (Good)")
-                BatteryDetailRow("Technologie Cellulaire", "Li-Polymer (Lithium Polymère)")
-                BatteryDetailRow("Température Actuelle", "28.4 °C")
-                BatteryDetailRow("Tension du Circuit", "4.18 V (4180 mV)")
-                BatteryDetailRow("Source d'Alimentation", "Batterie (Non branché)")
-                BatteryDetailRow("Capacité Typique Déclarée", "5000 mAh")
-                BatteryDetailRow("Cycles de Charge Estimés", "142 cycles")
+                InfoRow("Santé", info.health)
+                InfoRow("Technologie", info.technology)
+                InfoRow("Température", String.format(Locale.US, "%.1f °C", info.temperatureCelsius))
+                InfoRow("Tension", String.format(Locale.US, "%.2f V", info.voltageMilliVolts / 1000f))
+                InfoRow("Source d'alimentation", info.chargingSource)
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        SectionHeader("Courant et capacité", "Selon ce que le fabricant expose")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val current = info.currentNowMicroAmps
+                val counter = info.chargeCounterMicroAmpHours
+                val estimated = estimateCapacityMah(info)
+
+                InfoRow(
+                    "Courant instantané",
+                    if (current != null) (current / 1000L).toString() + " mA" else "Non exposé"
+                )
+                InfoRow(
+                    "Charge restante",
+                    if (counter != null) (counter / 1000L).toString() + " mAh" else "Non exposée"
+                )
+                InfoRow(
+                    "Capacité estimée",
+                    if (estimated != null) "≈ " + estimated.toString() + " mAh" else "Non calculable"
+                )
+                InfoRow(
+                    "Cycles de charge",
+                    if (info.cycleCount != null) info.cycleCount.toString() else "Non exposés"
+                )
+            }
+        }
+
+        Text(
+            text = "La capacité estimée est un calcul approximatif (charge restante ÷ niveau). " +
+                "Android n'expose pas la capacité d'origine de la batterie.",
+            color = TextMutedDark,
+            fontSize = 11.sp
+        )
     }
 }
 
-@Composable
-fun BatteryDetailRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = label, color = TextMutedDark, fontSize = 13.sp)
-        Text(text = value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    }
+/** Rough full capacity in mAh, only when the charge counter is available and the level is not too low. */
+private fun estimateCapacityMah(info: BatteryInfo): Long? {
+    val counter = info.chargeCounterMicroAmpHours ?: return null
+    if (info.percentage < 10) return null
+    return (counter / 1000L) * 100L / info.percentage
 }

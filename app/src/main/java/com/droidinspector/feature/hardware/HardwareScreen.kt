@@ -1,103 +1,143 @@
 package com.droidinspector.feature.hardware
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Memory
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.droidinspector.core.components.GlassCard
+import com.droidinspector.core.components.InfoRow
+import com.droidinspector.core.components.LoadingPane
+import com.droidinspector.core.components.ScreenHeader
 import com.droidinspector.core.components.SectionHeader
-import com.droidinspector.core.theme.EmeraldPrimary
+import com.droidinspector.core.theme.BackgroundDark
 import com.droidinspector.core.theme.TextMutedDark
+import com.droidinspector.core.utils.formatBytes
+import com.droidinspector.domain.model.CpuCore
+import com.droidinspector.domain.model.HardwareInfo
+import java.util.Locale
 
+/**
+ * Hardware Explorer: every value is read from the device.
+ * When Android does not expose a value, the screen says so instead of guessing.
+ * Signature : @Bienvenu
+ */
 @Composable
 fun HardwareScreen(
-    navController: NavController,
+    viewModel: HardwareViewModel,
     modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
+    val info = viewModel.uiState.collectAsState().value
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour", tint = EmeraldPrimary)
-            }
-            Text(
-                text = "Hardware Explorer",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
+    Box(modifier = modifier.fillMaxSize().background(BackgroundDark)) {
+        if (info == null) {
+            LoadingPane()
+        } else {
+            HardwareContent(info = info)
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        SectionHeader("Processeur (SoC & CPU)", "Cœurs, fréquences et jeux d'instructions")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HardwareItemRow("Architecture", "ARM64-v8a (64-bit)")
-                HardwareItemRow("Cœurs Actifs", "8 cœurs (1x Cortex-X4 + 5x Cortex-A720 + 2x Cortex-A520)")
-                HardwareItemRow("Fréquence Maximale", "3.30 GHz")
-                HardwareItemRow("Fréquence Minimale", "680 MHz")
-                HardwareItemRow("Gouverneur CPU", "schedutil")
-                HardwareItemRow("Jeu d'Instructions ABIs", "arm64-v8a, armeabi-v7a, armeabi")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        SectionHeader("Graphismes & Rendu GPU", "Pilote OpenGL ES et accélérateur")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HardwareItemRow("Vendeur GPU", "Qualcomm Technologies / ARM")
-                HardwareItemRow("Processeur Graphique", "Adreno 750 / Immortalis-G720")
-                HardwareItemRow("Version OpenGL ES", "OpenGL ES 3.2 v1.r38p0")
-                HardwareItemRow("Support Vulkan API", "Version 1.3 (Hardware Accelerated)")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        SectionHeader("Affichage & Dalle Tactile", "Résolution physique, densité et taux")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HardwareItemRow("Résolution Réelle", "1440 x 3120 pixels")
-                HardwareItemRow("Densité de Pixels", "512 dpi (xxxhdpi)")
-                HardwareItemRow("Fréquence de Rafraîchissement", "120.0 Hz (LTPO Dynamique)")
-                HardwareItemRow("Prise en charge HDR", "HDR10+, Dolby Vision")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
 @Composable
-fun HardwareItemRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+private fun HardwareContent(info: HardwareInfo) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(text = label, color = TextMutedDark, fontSize = 13.sp)
-        Text(text = value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        ScreenHeader(
+            title = "Hardware Explorer",
+            subtitle = "Valeurs réelles lues sur cet appareil"
+        )
+
+        SectionHeader("Processeur", "Plateforme, architecture et jeux d'instructions")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoRow("SoC / Plateforme", info.socName)
+                InfoRow("Architecture", info.cpuArchitecture)
+                InfoRow("Cœurs", info.coreCount.toString())
+                InfoRow("Jeux d'instructions (ABI)", info.abiList.joinToString(", "))
+            }
+        }
+
+        SectionHeader("Fréquences par cœur", "Minimum et maximum déclarés par le noyau")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val readable = info.cores.filter { it.maxFrequencyMhz != null }
+                if (readable.isEmpty()) {
+                    Text(
+                        text = "Fréquences non exposées par ce téléphone",
+                        color = TextMutedDark,
+                        fontSize = 13.sp
+                    )
+                } else {
+                    info.cores.forEach { core ->
+                        InfoRow("Cœur ${core.index}", formatFrequencyRange(core))
+                    }
+                }
+            }
+        }
+
+        SectionHeader("Mémoire", "RAM et mémoire d'échange")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoRow("RAM totale", formatBytes(info.ramTotalBytes))
+                InfoRow("RAM disponible", formatBytes(info.ramAvailableBytes))
+                InfoRow("Swap / zram", formatSwap(info.swapTotalBytes, info.swapFreeBytes))
+            }
+        }
+
+        SectionHeader("Affichage", "Dalle réelle de l'appareil")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoRow("Résolution", info.screenResolution + " px")
+                InfoRow("Densité", info.screenDensityDpi.toString() + " dpi")
+                InfoRow("Fréquence de rafraîchissement", formatRefreshRate(info.screenRefreshRateHz))
+            }
+        }
+
+        SectionHeader("Graphismes", "API de rendu")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoRow("OpenGL ES", info.openGlEsVersion)
+            }
+        }
+
+        Text(
+            text = "Le modèle exact du GPU n'est pas affiché : Android ne l'expose " +
+                "qu'à travers un contexte OpenGL, ce qui sera ajouté plus tard.",
+            color = TextMutedDark,
+            fontSize = 11.sp
+        )
     }
+}
+
+private fun formatFrequencyRange(core: CpuCore): String {
+    val min = core.minFrequencyMhz
+    val max = core.maxFrequencyMhz
+    return when {
+        min != null && max != null -> "$min – $max MHz"
+        max != null -> "max $max MHz"
+        else -> "Non disponible"
+    }
+}
+
+private fun formatSwap(total: Long?, free: Long?): String {
+    if (total == null || free == null || total <= 0L) return "Aucun ou non exposé"
+    return formatBytes(total - free) + " / " + formatBytes(total)
+}
+
+private fun formatRefreshRate(hertz: Float): String {
+    return if (hertz > 0f) String.format(Locale.US, "%.0f Hz", hertz) else "Non disponible"
 }
