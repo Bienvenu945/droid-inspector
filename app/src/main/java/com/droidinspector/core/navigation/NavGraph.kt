@@ -1,72 +1,20 @@
 package com.droidinspector.core.navigation
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.navigation.NavController
-import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
+import com.droidinspector.core.components.PlaceholderScreen
+import com.droidinspector.feature.dashboard.DashboardScreen
+import com.droidinspector.feature.dashboard.DashboardViewModel
 
-/** Destinations shown in the bottom bar (Material 3 recommends 3 to 5). */
-private val bottomItems = listOf(
-    Screen.Dashboard,
-    Screen.Hardware,
-    Screen.Battery,
-    Screen.Sensors,
-    Screen.Applications
-)
-
-/** Every route is registered, including those not in the bottom bar yet. */
-private val allScreens = listOf(
-    Screen.Dashboard,
-    Screen.Hardware,
-    Screen.Battery,
-    Screen.Sensors,
-    Screen.Applications,
-    Screen.Storage,
-    Screen.System,
-    Screen.Reports,
-    Screen.About
-)
-
-@Composable
-fun BottomNavigationBar(navController: NavController) {
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentDestination = backStackEntry?.destination
-
-    NavigationBar {
-        bottomItems.forEach { screen ->
-            NavigationBarItem(
-                selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                onClick = {
-                    navController.navigate(screen.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-                icon = { Icon(imageVector = screen.icon, contentDescription = screen.title) },
-                label = { Text(text = screen.title) }
-            )
-        }
-    }
-}
-
+/**
+ * Graphe de navigation de l'application Droid Inspector X.
+ * Seul le Dashboard est actif lors de cette étape, les autres écrans sont des Placeholders.
+ * Signature : @Bienvenu
+ */
 @Composable
 fun NavGraph(
     navController: NavHostController,
@@ -77,29 +25,36 @@ fun NavGraph(
         startDestination = Screen.Dashboard.route,
         modifier = modifier
     ) {
-        allScreens.forEach { screen ->
-            composable(screen.route) { PlaceholderScreen(title = screen.title) }
+        composable(Screen.Dashboard.route) {
+            val dashboardViewModel: DashboardViewModel = hiltViewModel()
+            DashboardScreen(
+                viewModel = dashboardViewModel,
+                modifier = Modifier
+            )
         }
-    }
-}
-
-/** Temporary content until each screen is built in the next phases. */
-@Composable
-private fun PlaceholderScreen(title: String) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = "Phase 2",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground
-        )
+        composable(Screen.Hardware.route) {
+            PlaceholderScreen(title = Screen.Hardware.title)
+        }
+        composable(Screen.Battery.route) {
+            PlaceholderScreen(title = Screen.Battery.title)
+        }
+        composable(Screen.Sensors.route) {
+            PlaceholderScreen(title = Screen.Sensors.title)
+        }
+        composable(Screen.Applications.route) {
+            PlaceholderScreen(title = Screen.Applications.title)
+        }
+        composable(Screen.Storage.route) {
+            PlaceholderScreen(title = Screen.Storage.title)
+        }
+        composable(Screen.System.route) {
+            PlaceholderScreen(title = Screen.System.title)
+        }
+        composable(Screen.Reports.route) {
+            PlaceholderScreen(title = Screen.Reports.title)
+        }
+        composable(Screen.About.route) {
+            PlaceholderScreen(title = Screen.About.title)
+        }
     }
 }

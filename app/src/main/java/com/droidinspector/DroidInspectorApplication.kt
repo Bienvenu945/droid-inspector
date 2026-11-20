@@ -12,5 +12,6 @@ import dagger.hilt.android.HiltAndroidApp
 class DroidInspectorApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Initialization for diagnostics engine and caching
     }
 }

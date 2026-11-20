@@ -15,6 +15,11 @@ import com.droidinspector.core.navigation.NavGraph
 import com.droidinspector.core.theme.DroidInspectorTheme
 import dagger.hilt.android.AndroidEntryPoint
 
+/**
+ * DROID INSPECTOR X
+ * Main Activity & Compose Host
+ * Signature: @Bienvenu
+ */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

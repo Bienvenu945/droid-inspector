@@ -1,1 +1,6 @@
-# Project-specific R8/ProGuard rules. Hilt, Room, Compose and DataStore ship their own consumer rules.
+# Droid Inspector X Proguard Rules
+-keepattributes *Annotation*
+-keepclassmembers class * {
+    @androidx.room.* <methods>;
+}
+-dontwarn com.google.errorprone.annotations.**
