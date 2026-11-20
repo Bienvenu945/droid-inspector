@@ -5,21 +5,37 @@ import androidx.lifecycle.viewModelScope
 import com.droidinspector.domain.model.BatteryInfo
 import com.droidinspector.domain.repository.DeviceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+data class BatteryUiState(
+    val isLoading: Boolean = true,
+    val batteryInfo: BatteryInfo? = null
+)
 
 @HiltViewModel
 class BatteryViewModel @Inject constructor(
-    repository: DeviceRepository
+    private val repository: DeviceRepository
 ) : ViewModel() {
 
-    /** Live readings; null until the first broadcast arrives. */
-    val uiState: StateFlow<BatteryInfo?> = repository.getBatteryInfo()
-        .stateIn<BatteryInfo?>(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = null
-        )
+    private val _uiState = MutableStateFlow(BatteryUiState())
+    val uiState: StateFlow<BatteryUiState> = _uiState.asStateFlow()
+
+    init {
+        observeBattery()
+    }
+
+    private fun observeBattery() {
+        viewModelScope.launch {
+            repository.getBatteryInfo().collect { info ->
+                _uiState.value = BatteryUiState(
+                    isLoading = false,
+                    batteryInfo = info
+                )
+            }
+        }
+    }
 }

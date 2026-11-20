@@ -1,38 +1,59 @@
 package com.droidinspector.feature.about
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Verified
-import androidx.compose.material3.*
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.droidinspector.core.components.GlassCard
+import com.droidinspector.core.components.InfoRow
 import com.droidinspector.core.components.SectionHeader
+import com.droidinspector.core.theme.EmeraldLight
 import com.droidinspector.core.theme.EmeraldPrimary
-import com.droidinspector.core.theme.TextMutedDark
 
+/**
+ * Écran À propos, Paramètres & Signature officielle @Bienvenu.
+ */
 @Composable
 fun AboutScreen(
+    viewModel: AboutViewModel,
     navController: NavController,
     modifier: Modifier = Modifier
 ) {
+    val isDarkTheme by viewModel.isDarkTheme.collectAsState()
+    val refreshInterval by viewModel.refreshIntervalMs.collectAsState()
     val scrollState = rememberScrollState()
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .verticalScroll(scrollState)
-            .padding(16.dp)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -42,20 +63,15 @@ fun AboutScreen(
                 Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour", tint = EmeraldPrimary)
             }
             Text(
-                text = "À propos de l'application",
+                text = "À propos & Paramètres",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Official Signature Box
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = 24.dp
-        ) {
+        // Signature Officielle
+        GlassCard(contentPadding = 24.dp) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -64,16 +80,16 @@ fun AboutScreen(
                     imageVector = Icons.Rounded.Verified,
                     contentDescription = null,
                     tint = EmeraldPrimary,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(46.dp)
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = "DROID INSPECTOR X",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     letterSpacing = 1.sp
                 )
 
@@ -90,67 +106,102 @@ fun AboutScreen(
                     text = "Developed by @Bienvenu",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Version 1.0.0 (Phase 1 — Foundation)",
+                    text = "Version 1.0.0 · com.droidinspector.app",
                     fontSize = 11.sp,
-                    color = TextMutedDark
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        SectionHeader("Préférences de l'Application", "Thème et fréquence d'actualisation")
 
-        SectionHeader("Engagement Confidentialité & Éthique", "Architecture respectueuse de votre vie privée")
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.DarkMode, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("Mode Sombre (Défaut)", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Verre dépoli vert émeraude", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Switch(
+                        checked = isDarkTheme,
+                        onCheckedChange = viewModel::toggleDarkTheme,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = EmeraldPrimary
+                        )
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = "Intervalle de rafraîchissement Dashboard",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(1000L to "1s", 2000L to "2s", 5000L to "5s").forEach { (ms, label) ->
+                            FilterChip(
+                                selected = refreshInterval == ms,
+                                onClick = { viewModel.setRefreshInterval(ms) },
+                                label = { Text(label, fontFamily = FontFamily.Monospace) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = EmeraldPrimary.copy(alpha = 0.2f),
+                                    selectedLabelColor = EmeraldLight
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        SectionHeader("Confidentialité & Transparence", "Aucune transmission de données")
 
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Security, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("100% Hors-Ligne & Local", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("100% Local & Hors-Ligne", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Text(
-                    text = "Toutes les analyses et diagnostics matériels sont exécutés directement sur le processeur de votre appareil Android. Aucune donnée, identifiant matériel ou télémétrie n'est transmise vers des serveurs distants.",
-                    color = TextMutedDark,
+                    text = "Toutes les inspections matérielles, mesures de capteurs, inventaires d'applications et exports PDF sont exécutés exclusivement sur votre smartphone. Aucune information n'est collectée ou envoyée à l'extérieur.",
                     fontSize = 12.sp,
-                    lineHeight = 18.sp
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        SectionHeader("Spécifications Techniques du Projet", "Technologies de pointe Android")
-
+        SectionHeader("Architecture & Crédits", "Pile technologique Android")
         GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                AboutSpecRow("Langage", "Kotlin 2.0.21")
-                AboutSpecRow("Interface", "Jetpack Compose + Material 3")
-                AboutSpecRow("Architecture", "MVVM / Clean Architecture Modulaire")
-                AboutSpecRow("Design System", "Emerald Frosted Glass (Glassmorphism)")
-                AboutSpecRow("Injection", "Dagger Hilt")
-                AboutSpecRow("Automatisation CI", "GitHub Actions (.github/workflows)")
-                AboutSpecRow("Auteur Officiel", "@Bienvenu")
+            Column {
+                InfoRow("Langage", "Kotlin 2.0.21")
+                InfoRow("Interface", "Jetpack Compose + Material 3")
+                InfoRow("Architecture", "MVVM Clean (Presentation / Domain / Data)")
+                InfoRow("Injection", "Dagger Hilt 2.52")
+                InfoRow("Stockage", "DataStore Preferences & SAF")
+                InfoRow("Auteur Officiel", "@Bienvenu", valueColor = EmeraldPrimary, showDivider = false)
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-    }
-}
-
-@Composable
-fun AboutSpecRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = label, color = TextMutedDark, fontSize = 12.sp)
-        Text(text = value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }

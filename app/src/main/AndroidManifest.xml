@@ -2,11 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Basic diagnostic and hardware inspection permissions -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    
-    <!-- Package discovery query specification (Android 11+ Package Visibility) -->
+
+    <!-- Android 11+ Package Visibility: query launchable apps safely -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -15,7 +14,7 @@
     </queries>
 
     <application
-        android:name=".DroidInspectorApplication"
+        android:name="com.droidinspector.DroidInspectorApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -25,9 +24,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DroidInspectorX"
         tools:targetApi="35">
-        
+
         <activity
-            android:name=".MainActivity"
+            android:name="com.droidinspector.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.DroidInspectorX"
             android:windowSoftInputMode="adjustResize">
@@ -36,6 +35,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

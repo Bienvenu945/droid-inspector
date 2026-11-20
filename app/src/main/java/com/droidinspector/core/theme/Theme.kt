@@ -27,11 +27,11 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = EmeraldPrimary,
+    primary = EmeraldDark,
     onPrimary = SurfaceLight,
     primaryContainer = EmeraldLight,
     onPrimaryContainer = BackgroundDark,
-    secondary = EmeraldDark,
+    secondary = EmeraldPrimary,
     onSecondary = SurfaceLight,
     background = BackgroundLight,
     onBackground = TextPrimaryLight,
@@ -44,7 +44,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun DroidInspectorTheme(
-    darkTheme: Boolean = true, // l'UI est dessinée en sombre : thème sombre forcé
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
@@ -52,12 +52,14 @@ fun DroidInspectorTheme(
 
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
+            val window = (view.context as? Activity)?.window
+            if (window != null) {
+                window.statusBarColor = colorScheme.background.toArgb()
+                window.navigationBarColor = colorScheme.background.toArgb()
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
             }
         }
     }

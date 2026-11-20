@@ -12,42 +12,48 @@ permissions:
 
 jobs:
   build:
-    name: Build debug and release APKs
+    name: Build Debug APK
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android SDK packages
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Make sure Android SDK 35 is installed
         run: |
-            yes | sdkmanager --licenses
-            sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" || true
 
-      - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build debug and release APKs
+      - name: Unit tests
         run: |
-          chmod +x ./gradlew
-          ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Upload APK artifacts
-        uses: actions/upload-artifact@v4
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v6
         with:
-          name: droid-inspector-x-apks
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+          name: droid-inspector-x-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
-          
+
+      # Optional: a release build failing here must not hide the debug APK above.
+      - name: Build release APK (unsigned, optional)
+        continue-on-error: true
+        run: ./gradlew assembleRelease --stacktrace
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: droid-inspector-x-release-apk-unsigned
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+          retention-days: 14

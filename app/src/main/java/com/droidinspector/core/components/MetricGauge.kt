@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,15 +17,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.droidinspector.core.theme.EmeraldPrimary
-import com.droidinspector.core.theme.TextMutedDark
 
 /**
- * Animated Circular Gauge for Battery, RAM, and Storage
+ * Animated Circular Gauge for Battery, RAM, and Storage.
  */
 @Composable
 fun MetricGauge(
@@ -33,7 +34,7 @@ fun MetricGauge(
     size: Dp = 120.dp,
     strokeWidth: Dp = 10.dp,
     gaugeColor: Color = EmeraldPrimary,
-    trackColor: Color = EmeraldPrimary.copy(alpha = 0.15f),
+    trackColor: Color = EmeraldPrimary.copy(alpha = 0.16f),
     unit: String = "%",
     label: String = ""
 ) {
@@ -42,7 +43,7 @@ fun MetricGauge(
     LaunchedEffect(value) {
         animatedProgress.animateTo(
             targetValue = (value / 100f).coerceIn(0f, 1f),
-            animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing)
+            animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing)
         )
     }
 
@@ -52,12 +53,10 @@ fun MetricGauge(
     ) {
         Canvas(modifier = Modifier.size(size)) {
             val stroke = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
-            // Background track
             drawCircle(
                 color = trackColor,
                 style = stroke
             )
-            // Foreground progress arc
             drawArc(
                 color = gaugeColor,
                 startAngle = -90f,
@@ -70,15 +69,16 @@ fun MetricGauge(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "${(animatedProgress.value * 100).toInt()}$unit",
-                fontSize = 20.sp,
+                fontSize = if (size >= 120.dp) 24.sp else 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface
             )
             if (label.isNotEmpty()) {
                 Text(
                     text = label,
-                    fontSize = 11.sp,
-                    color = TextMutedDark
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

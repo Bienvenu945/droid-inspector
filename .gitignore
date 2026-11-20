@@ -1,12 +1,15 @@
-.gradle/
-build/
-local.properties
-.idea/
+# Android / Gradle
 *.iml
-captures/
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
 *.apk
 *.aab
-*.jks
 *.keystore
-.DS_Store
-*.log
+*.jks

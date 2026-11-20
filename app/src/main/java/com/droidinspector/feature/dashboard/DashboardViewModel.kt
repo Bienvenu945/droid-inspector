@@ -1,178 +1,130 @@
 package com.droidinspector.feature.dashboard
 
-import android.app.ActivityManager
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
-import android.os.Build
-import android.os.Environment
-import android.os.StatFs
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.droidinspector.core.utils.FormatUtils
+import com.droidinspector.data.local.PreferencesRepository
+import com.droidinspector.domain.repository.DeviceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.util.Locale
 import javax.inject.Inject
 
 /**
- * État de l'écran Dashboard de Droid Inspector X.
+ * État de l'écran Dashboard principal.
  * Signature : @Bienvenu
  */
 data class DashboardUiState(
-    // Appareil
+    val isLoaded: Boolean = false,
+    val deviceName: String = "",
     val manufacturer: String = "",
     val model: String = "",
-
-    // Système Android
     val androidVersion: String = "",
     val apiLevel: Int = 0,
-
-    // Mémoire RAM
-    val ramUsedBytes: Long = 0L,
-    val ramTotalBytes: Long = 0L,
-    val ramUsedFormatted: String = "0 Go",
-    val ramTotalFormatted: String = "0 Go",
+    val buildNumber: String = "",
+    val cpuArchitecture: String = "",
+    val cpuCoreCount: Int = 0,
+    val screenResolution: String = "",
+    val screenRefreshRateHz: Float = 60f,
+    val sensorsCount: Int = 0,
+    val ramUsedFormatted: String = "0.0 Go",
+    val ramTotalFormatted: String = "0.0 Go",
     val ramUsagePercentage: Float = 0f,
-
-    // Stockage interne
-    val storageUsedBytes: Long = 0L,
-    val storageTotalBytes: Long = 0L,
-    val storageUsedFormatted: String = "0 Go",
-    val storageTotalFormatted: String = "0 Go",
+    val storageUsedFormatted: String = "0.0 Go",
+    val storageTotalFormatted: String = "0.0 Go",
     val storageUsagePercentage: Float = 0f,
-
-    // Batterie
     val batteryLevel: Int = 0,
     val isCharging: Boolean = false,
-    val batteryTemperature: Float = 0f,
     val batteryStatusText: String = "",
-
-    // Indicateur de chargement initial
-    val isLoaded: Boolean = false
+    val batteryTemperature: Float = 0f,
+    val batteryVoltageMv: Int = 0
 )
 
-/**
- * ViewModel Hilt pour l'écran Dashboard avec rafraîchissement automatique toutes les 2 secondes.
- * Signature : @Bienvenu
- */
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    @ApplicationContext private val context: Context
+    private val repository: DeviceRepository,
+    private val preferencesRepository: PreferencesRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     init {
-        startMetricsPolling()
+        observeBatteryStream()
+        startPollingMetrics()
     }
 
-    private fun startMetricsPolling() {
+    private fun observeBatteryStream() {
         viewModelScope.launch {
-            while (isActive) {
-                updateMetrics()
-                delay(2000L) // Rafraîchissement automatique toutes les 2 secondes
+            repository.getBatteryInfo().collect { battery ->
+                _uiState.value = _uiState.value.copy(
+                    batteryLevel = battery.percentage,
+                    isCharging = battery.isCharging,
+                    batteryStatusText = battery.statusLabel,
+                    batteryTemperature = battery.temperatureCelsius,
+                    batteryVoltageMv = battery.voltageMilliVolts
+                )
             }
         }
     }
 
-    fun updateMetrics() {
-        // 1. Informations de l'appareil
-        val manufacturerRaw = Build.MANUFACTURER ?: "Inconnu"
-        val manufacturer = manufacturerRaw.replaceFirstChar {
-            if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
+    private fun startPollingMetrics() {
+        viewModelScope.launch {
+            while (isActive) {
+                refreshNow()
+                val interval = preferencesRepository.refreshIntervalMs.first().coerceIn(1000L, 10000L)
+                delay(interval)
+            }
         }
-        val model = Build.MODEL ?: "Inconnu"
-
-        // 2. Informations Android
-        val androidVersion = Build.VERSION.RELEASE ?: "Inconnu"
-        val apiLevel = Build.VERSION.SDK_INT
-
-        // 3. Mémoire RAM via ActivityManager.MemoryInfo
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val memoryInfo = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memoryInfo)
-
-        val ramTotal = memoryInfo.totalMem
-        val ramAvail = memoryInfo.availMem
-        val ramUsed = (ramTotal - ramAvail).coerceAtLeast(0L)
-        val ramPercentage = if (ramTotal > 0L) {
-            ((ramUsed.toDouble() / ramTotal.toDouble()) * 100).toFloat().coerceIn(0f, 100f)
-        } else 0f
-
-        // 4. Stockage interne via StatFs sur Environment.getDataDirectory()
-        val dataDir = Environment.getDataDirectory()
-        val statFs = StatFs(dataDir.path)
-        val blockSize = statFs.blockSizeLong
-        val totalBlocks = statFs.blockCountLong
-        val availBlocks = statFs.availableBlocksLong
-
-        val storageTotal = totalBlocks * blockSize
-        val storageAvail = availBlocks * blockSize
-        val storageUsed = (storageTotal - storageAvail).coerceAtLeast(0L)
-        val storagePercentage = if (storageTotal > 0L) {
-            ((storageUsed.toDouble() / storageTotal.toDouble()) * 100).toFloat().coerceIn(0f, 100f)
-        } else 0f
-
-        // 5. Batterie via sticky broadcast Intent.ACTION_BATTERY_CHANGED (sans runtime permission)
-        val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val batteryIntent = context.registerReceiver(null, batteryFilter)
-
-        val rawLevel = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val rawScale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val batteryPct = if (rawLevel >= 0 && rawScale > 0) {
-            (rawLevel * 100) / rawScale
-        } else {
-            0
-        }
-
-        val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
-
-        val batteryStatusText = when {
-            status == BatteryManager.BATTERY_STATUS_FULL -> "Pleine"
-            isCharging -> "En charge"
-            status == BatteryManager.BATTERY_STATUS_DISCHARGING -> "En décharge"
-            status == BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Non branché"
-            else -> "Sur batterie"
-        }
-
-        val rawTemp = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
-        val batteryTempCelsius = rawTemp / 10f
-
-        _uiState.value = DashboardUiState(
-            manufacturer = manufacturer,
-            model = model,
-            androidVersion = androidVersion,
-            apiLevel = apiLevel,
-            ramUsedBytes = ramUsed,
-            ramTotalBytes = ramTotal,
-            ramUsedFormatted = formatGigabytes(ramUsed),
-            ramTotalFormatted = formatGigabytes(ramTotal),
-            ramUsagePercentage = ramPercentage,
-            storageUsedBytes = storageUsed,
-            storageTotalBytes = storageTotal,
-            storageUsedFormatted = formatGigabytes(storageUsed),
-            storageTotalFormatted = formatGigabytes(storageTotal),
-            storageUsagePercentage = storagePercentage,
-            batteryLevel = batteryPct,
-            isCharging = isCharging,
-            batteryTemperature = batteryTempCelsius,
-            batteryStatusText = batteryStatusText,
-            isLoaded = true
-        )
     }
 
-    private fun formatGigabytes(bytes: Long): String {
-        val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
-        return String.format(Locale.US, "%.1f Go", gb)
+    fun refreshNow() {
+        viewModelScope.launch {
+            val summary = repository.getDeviceSummary()
+            val hardware = repository.getHardwareInfo()
+            val storage = repository.getStorageInfo()
+            val sensors = repository.getAvailableSensors()
+            val battery = repository.getCurrentBatterySnapshot()
+
+            val ramUsed = (hardware.ramTotalBytes - hardware.ramAvailableBytes).coerceAtLeast(0L)
+            val ramPct = if (hardware.ramTotalBytes > 0L) {
+                ((ramUsed.toDouble() / hardware.ramTotalBytes.toDouble()) * 100).toFloat().coerceIn(0f, 100f)
+            } else 0f
+
+            val storagePct = if (storage.totalBytes > 0L) {
+                ((storage.usedBytes.toDouble() / storage.totalBytes.toDouble()) * 100).toFloat().coerceIn(0f, 100f)
+            } else 0f
+
+            _uiState.value = _uiState.value.copy(
+                isLoaded = true,
+                deviceName = summary.deviceName,
+                manufacturer = summary.manufacturer,
+                model = summary.model,
+                androidVersion = summary.androidVersion,
+                apiLevel = summary.apiLevel,
+                buildNumber = summary.buildNumber,
+                cpuArchitecture = hardware.cpuArchitecture,
+                cpuCoreCount = hardware.coreCount,
+                screenResolution = hardware.screenResolution,
+                screenRefreshRateHz = hardware.screenRefreshRateHz,
+                sensorsCount = sensors.size,
+                ramUsedFormatted = FormatUtils.formatGigabytesShort(ramUsed),
+                ramTotalFormatted = FormatUtils.formatGigabytesShort(hardware.ramTotalBytes),
+                ramUsagePercentage = ramPct,
+                storageUsedFormatted = FormatUtils.formatGigabytesShort(storage.usedBytes),
+                storageTotalFormatted = FormatUtils.formatGigabytesShort(storage.totalBytes),
+                storageUsagePercentage = storagePct,
+                batteryLevel = battery.percentage,
+                isCharging = battery.isCharging,
+                batteryStatusText = battery.statusLabel,
+                batteryTemperature = battery.temperatureCelsius,
+                batteryVoltageMv = battery.voltageMilliVolts
+            )
+        }
     }
 }

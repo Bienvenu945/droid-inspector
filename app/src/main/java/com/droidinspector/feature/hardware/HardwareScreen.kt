@@ -1,143 +1,151 @@
 package com.droidinspector.feature.hardware
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import com.droidinspector.core.components.GlassCard
 import com.droidinspector.core.components.InfoRow
-import com.droidinspector.core.components.LoadingPane
-import com.droidinspector.core.components.ScreenHeader
 import com.droidinspector.core.components.SectionHeader
-import com.droidinspector.core.theme.BackgroundDark
-import com.droidinspector.core.theme.TextMutedDark
-import com.droidinspector.core.utils.formatBytes
-import com.droidinspector.domain.model.CpuCore
-import com.droidinspector.domain.model.HardwareInfo
-import java.util.Locale
+import com.droidinspector.core.theme.EmeraldPrimary
+import com.droidinspector.core.utils.FormatUtils
 
 /**
- * Hardware Explorer: every value is read from the device.
- * When Android does not expose a value, the screen says so instead of guessing.
+ * Module 02 : Hardware Explorer.
  * Signature : @Bienvenu
  */
 @Composable
 fun HardwareScreen(
     viewModel: HardwareViewModel,
+    navController: NavController,
     modifier: Modifier = Modifier
 ) {
-    val info = viewModel.uiState.collectAsState().value
+    val state by viewModel.uiState.collectAsState()
+    val scrollState = rememberScrollState()
 
-    Box(modifier = modifier.fillMaxSize().background(BackgroundDark)) {
-        if (info == null) {
-            LoadingPane()
-        } else {
-            HardwareContent(info = info)
-        }
-    }
-}
-
-@Composable
-private fun HardwareContent(info: HardwareInfo) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenHeader(
-            title = "Hardware Explorer",
-            subtitle = "Valeurs réelles lues sur cet appareil"
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour", tint = EmeraldPrimary)
+            }
+            Text(
+                text = "Hardware Explorer",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
 
-        SectionHeader("Processeur", "Plateforme, architecture et jeux d'instructions")
+        val hw = state.hardwareInfo
+        if (state.isLoading || hw == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = EmeraldPrimary)
+            }
+            return@Column
+        }
+
+        SectionHeader("Identification Matérielle", "Constructeur, modèle et nom du produit")
         GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoRow("SoC / Plateforme", info.socName)
-                InfoRow("Architecture", info.cpuArchitecture)
-                InfoRow("Cœurs", info.coreCount.toString())
-                InfoRow("Jeux d'instructions (ABI)", info.abiList.joinToString(", "))
+            Column {
+                InfoRow("Fabricant", hw.manufacturer)
+                InfoRow("Modèle", hw.model, monospaceValue = true)
+                InfoRow("Nom du Produit", hw.product, monospaceValue = true, showDivider = false)
             }
         }
 
-        SectionHeader("Fréquences par cœur", "Minimum et maximum déclarés par le noyau")
+        SectionHeader("Processeur (CPU)", "Architecture, cœurs et fréquences accessibles")
         GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val readable = info.cores.filter { it.maxFrequencyMhz != null }
-                if (readable.isEmpty()) {
-                    Text(
-                        text = "Fréquences non exposées par ce téléphone",
-                        color = TextMutedDark,
-                        fontSize = 13.sp
+            Column {
+                InfoRow("Architecture CPU", hw.cpuArchitecture, monospaceValue = true)
+                InfoRow("ABIs Supportées", hw.abiList.joinToString(", "), monospaceValue = true)
+                InfoRow("Nombre de Cœurs", "${hw.coreCount} cœurs", valueColor = EmeraldPrimary, monospaceValue = true)
+
+                hw.coreFrequencies.forEachIndexed { idx, core ->
+                    val currentStr = core.currentKhz?.let { FormatUtils.formatFrequencyKhz(it) } ?: "Restreint OS"
+                    val rangeStr = if (core.minKhz != null && core.maxKhz != null) {
+                        " (${FormatUtils.formatFrequencyKhz(core.minKhz)} - ${FormatUtils.formatFrequencyKhz(core.maxKhz)})"
+                    } else ""
+                    InfoRow(
+                        label = "Cœur #${core.coreIndex}",
+                        value = "$currentStr$rangeStr",
+                        monospaceValue = true,
+                        showDivider = idx < hw.coreFrequencies.lastIndex
                     )
-                } else {
-                    info.cores.forEach { core ->
-                        InfoRow("Cœur ${core.index}", formatFrequencyRange(core))
+                }
+            }
+        }
+
+        SectionHeader("Mémoire Vive (RAM)", "Capacité totale et disponibilité temps réel")
+        GlassCard {
+            val usedRam = (hw.ramTotalBytes - hw.ramAvailableBytes).coerceAtLeast(0L)
+            Column {
+                InfoRow("RAM Totale", FormatUtils.formatBytes(hw.ramTotalBytes), monospaceValue = true)
+                InfoRow("RAM Utilisée", FormatUtils.formatBytes(usedRam), valueColor = EmeraldPrimary, monospaceValue = true)
+                InfoRow("RAM Disponible", FormatUtils.formatBytes(hw.ramAvailableBytes), monospaceValue = true)
+                InfoRow("Seuil Mémoire Faible", FormatUtils.formatBytes(hw.ramThresholdBytes), monospaceValue = true)
+                InfoRow("État Mémoire Critique", if (hw.isLowMemory) "Oui" else "Normal", showDivider = false)
+            }
+        }
+
+        SectionHeader("Écran & Graphismes GPU", "Résolution, densité, rafraîchissement et APIs 3D")
+        GlassCard {
+            Column {
+                InfoRow("Résolution Écran", hw.screenResolution, monospaceValue = true)
+                InfoRow("Densité de Pixels", "${hw.screenDensityDpi} dpi (${hw.screenDensityBucket})", monospaceValue = true)
+                InfoRow("Rafraîchissement", "${hw.screenRefreshRateHz.toInt()} Hz", valueColor = EmeraldPrimary, monospaceValue = true)
+                InfoRow("Support HDR", if (hw.hdrSupported) "Pris en charge" else "Standard SDR")
+                InfoRow("Version OpenGL ES", hw.glEsVersion, monospaceValue = true)
+                InfoRow("Support Vulkan", if (hw.vulkanSupported) "Disponible (Matériel)" else "Non détecté", showDivider = false)
+            }
+        }
+
+        if (hw.hardwareFeatures.isNotEmpty()) {
+            SectionHeader("Caractéristiques Matérielles", "Modules détectés via PackageManager")
+            GlassCard {
+                Column {
+                    hw.hardwareFeatures.forEachIndexed { idx, feature ->
+                        InfoRow(
+                            label = feature,
+                            value = "Disponible",
+                            valueColor = EmeraldPrimary,
+                            showDivider = idx < hw.hardwareFeatures.lastIndex
+                        )
                     }
                 }
             }
         }
 
-        SectionHeader("Mémoire", "RAM et mémoire d'échange")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoRow("RAM totale", formatBytes(info.ramTotalBytes))
-                InfoRow("RAM disponible", formatBytes(info.ramAvailableBytes))
-                InfoRow("Swap / zram", formatSwap(info.swapTotalBytes, info.swapFreeBytes))
-            }
-        }
-
-        SectionHeader("Affichage", "Dalle réelle de l'appareil")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoRow("Résolution", info.screenResolution + " px")
-                InfoRow("Densité", info.screenDensityDpi.toString() + " dpi")
-                InfoRow("Fréquence de rafraîchissement", formatRefreshRate(info.screenRefreshRateHz))
-            }
-        }
-
-        SectionHeader("Graphismes", "API de rendu")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoRow("OpenGL ES", info.openGlEsVersion)
-            }
-        }
-
-        Text(
-            text = "Le modèle exact du GPU n'est pas affiché : Android ne l'expose " +
-                "qu'à travers un contexte OpenGL, ce qui sera ajouté plus tard.",
-            color = TextMutedDark,
-            fontSize = 11.sp
-        )
+        Spacer(modifier = Modifier.height(16.dp))
     }
-}
-
-private fun formatFrequencyRange(core: CpuCore): String {
-    val min = core.minFrequencyMhz
-    val max = core.maxFrequencyMhz
-    return when {
-        min != null && max != null -> "$min – $max MHz"
-        max != null -> "max $max MHz"
-        else -> "Non disponible"
-    }
-}
-
-private fun formatSwap(total: Long?, free: Long?): String {
-    if (total == null || free == null || total <= 0L) return "Aucun ou non exposé"
-    return formatBytes(total - free) + " / " + formatBytes(total)
-}
-
-private fun formatRefreshRate(hertz: Float): String {
-    return if (hertz > 0f) String.format(Locale.US, "%.0f Hz", hertz) else "Non disponible"
 }

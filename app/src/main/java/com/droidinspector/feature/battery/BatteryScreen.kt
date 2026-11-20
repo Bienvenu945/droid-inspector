@@ -1,141 +1,164 @@
 package com.droidinspector.feature.battery
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import com.droidinspector.core.components.GlassCard
 import com.droidinspector.core.components.InfoRow
-import com.droidinspector.core.components.LoadingPane
 import com.droidinspector.core.components.MetricGauge
-import com.droidinspector.core.components.ScreenHeader
 import com.droidinspector.core.components.SectionHeader
-import com.droidinspector.core.theme.BackgroundDark
 import com.droidinspector.core.theme.EmeraldPrimary
-import com.droidinspector.core.theme.TextMutedDark
-import com.droidinspector.domain.model.BatteryInfo
+import com.droidinspector.core.theme.StatusWarning
 import java.util.Locale
 
 /**
- * Battery Monitor: live readings from BatteryManager.
- * Values the phone does not expose are shown as such, never invented.
+ * Module 03 : Battery Monitor en temps réel.
  * Signature : @Bienvenu
  */
 @Composable
 fun BatteryScreen(
     viewModel: BatteryViewModel,
+    navController: NavController,
     modifier: Modifier = Modifier
 ) {
-    val info = viewModel.uiState.collectAsState().value
+    val state by viewModel.uiState.collectAsState()
+    val scrollState = rememberScrollState()
 
-    Box(modifier = modifier.fillMaxSize().background(BackgroundDark)) {
-        if (info == null) {
-            LoadingPane()
-        } else {
-            BatteryContent(info = info)
-        }
-    }
-}
-
-@Composable
-private fun BatteryContent(info: BatteryInfo) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenHeader(
-            title = "Battery Monitor",
-            subtitle = "Mesures en direct issues de BatteryManager"
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour", tint = EmeraldPrimary)
+            }
+            Text(
+                text = "Battery Monitor",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
 
-        GlassCard(contentPadding = 24.dp) {
+        val battery = state.batteryInfo
+        if (state.isLoading || battery == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = EmeraldPrimary)
+            }
+            return@Column
+        }
+
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = 24.dp
+        ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 MetricGauge(
-                    value = info.percentage.toFloat(),
-                    size = 140.dp,
+                    value = battery.percentage.toFloat(),
+                    size = 150.dp,
                     strokeWidth = 12.dp,
                     label = "Niveau"
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = if (info.isCharging) "En charge · " + info.chargingSource else "Sur batterie",
-                    fontSize = 13.sp,
-                    color = EmeraldPrimary,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Bolt,
+                        contentDescription = null,
+                        tint = if (battery.isCharging) EmeraldPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${battery.statusLabel} · ${battery.chargingSource}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (battery.isCharging) EmeraldPrimary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
 
-        SectionHeader("État de l'accumulateur", "Rafraîchi automatiquement")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                InfoRow("Santé", info.health)
-                InfoRow("Technologie", info.technology)
-                InfoRow("Température", String.format(Locale.US, "%.1f °C", info.temperatureCelsius))
-                InfoRow("Tension", String.format(Locale.US, "%.2f V", info.voltageMilliVolts / 1000f))
-                InfoRow("Source d'alimentation", info.chargingSource)
-            }
-        }
-
-        SectionHeader("Courant et capacité", "Selon ce que le fabricant expose")
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                val current = info.currentNowMicroAmps
-                val counter = info.chargeCounterMicroAmpHours
-                val estimated = estimateCapacityMah(info)
-
-                InfoRow(
-                    "Courant instantané",
-                    if (current != null) (current / 1000L).toString() + " mA" else "Non exposé"
-                )
-                InfoRow(
-                    "Charge restante",
-                    if (counter != null) (counter / 1000L).toString() + " mAh" else "Non exposée"
-                )
-                InfoRow(
-                    "Capacité estimée",
-                    if (estimated != null) "≈ " + estimated.toString() + " mAh" else "Non calculable"
-                )
-                InfoRow(
-                    "Cycles de charge",
-                    if (info.cycleCount != null) info.cycleCount.toString() else "Non exposés"
-                )
-            }
-        }
-
-        Text(
-            text = "La capacité estimée est un calcul approximatif (charge restante ÷ niveau). " +
-                "Android n'expose pas la capacité d'origine de la batterie.",
-            color = TextMutedDark,
-            fontSize = 11.sp
+        SectionHeader(
+            title = "Paramètres Électro-Chimiques",
+            subtitle = "Mesures en direct issues de BatteryManager"
         )
-    }
-}
 
-/** Rough full capacity in mAh, only when the charge counter is available and the level is not too low. */
-private fun estimateCapacityMah(info: BatteryInfo): Long? {
-    val counter = info.chargeCounterMicroAmpHours ?: return null
-    if (info.percentage < 10) return null
-    return (counter / 1000L) * 100L / info.percentage
+        GlassCard {
+            Column {
+                InfoRow("Pourcentage", "${battery.percentage}%", valueColor = EmeraldPrimary, monospaceValue = true)
+                InfoRow("État de charge", battery.statusLabel)
+                InfoRow("Recharge active", if (battery.isCharging) "Oui" else "Non")
+                InfoRow("Source d'alimentation", battery.chargingSource)
+                InfoRow("État de santé", battery.health, valueColor = EmeraldPrimary)
+                InfoRow("Technologie", battery.technology, monospaceValue = true)
+                InfoRow(
+                    label = "Température",
+                    value = String.format(Locale.US, "%.1f °C", battery.temperatureCelsius),
+                    valueColor = if (battery.temperatureCelsius > 42f) StatusWarning else MaterialTheme.colorScheme.onSurface,
+                    monospaceValue = true
+                )
+                InfoRow(
+                    label = "Tension",
+                    value = String.format(Locale.US, "%.2f V (%d mV)", battery.voltageMilliVolts / 1000f, battery.voltageMilliVolts),
+                    monospaceValue = true,
+                    showDivider = battery.currentMicroAmps != null || battery.chargeCounterMicroAh != null
+                )
+                battery.currentMicroAmps?.let { microAmps ->
+                    InfoRow(
+                        label = "Courant instantané",
+                        value = "${microAmps / 1000} mA",
+                        monospaceValue = true,
+                        showDivider = battery.chargeCounterMicroAh != null
+                    )
+                }
+                battery.chargeCounterMicroAh?.let { counter ->
+                    InfoRow(
+                        label = "Charge stockée",
+                        value = "${counter / 1000} mAh",
+                        monospaceValue = true,
+                        showDivider = false
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
 }

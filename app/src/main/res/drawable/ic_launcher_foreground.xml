@@ -4,21 +4,20 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Gauge ring (270 degrees) -->
     <path
-        android:pathData="M54,30A24,24 0 1,1 30,54"
-        android:strokeColor="@color/emerald_400"
-        android:strokeWidth="6"
-        android:strokeLineCap="round" />
-    <!-- Needle -->
+        android:fillColor="#10B981"
+        android:pathData="M34,34h40v40h-40z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#34D399" />
     <path
-        android:pathData="M54,54L66,42"
-        android:strokeColor="@color/text_primary"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
-    <!-- Hub -->
+        android:fillColor="#050B08"
+        android:pathData="M42,42h24v24h-24z" />
     <path
-        android:fillColor="@color/emerald_400"
-        android:pathData="M48.5,54a5.5,5.5 0 1,0 11,0a5.5,5.5 0 1,0 -11,0Z" />
+        android:fillColor="#34D399"
+        android:pathData="M49,49h10v10h-10z" />
+    <path
+        android:strokeColor="#10B981"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M44,24v10 M54,24v10 M64,24v10 M44,74v10 M54,74v10 M64,74v10 M24,44h10 M24,54h10 M24,64h10 M74,44h10 M74,54h10 M74,64h10" />
 </vector>

@@ -1,30 +1,48 @@
 package com.droidinspector.data.repository
 
 import android.app.ActivityManager
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.hardware.display.DisplayManager
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
-import android.util.DisplayMetrics
+import android.provider.DocumentsContract
 import android.view.Display
-import com.droidinspector.domain.model.*
+import com.droidinspector.core.utils.FormatUtils
+import com.droidinspector.domain.model.AppPackageInfo
+import com.droidinspector.domain.model.BatteryInfo
+import com.droidinspector.domain.model.CpuCoreFrequency
+import com.droidinspector.domain.model.DeviceSummary
+import com.droidinspector.domain.model.HardwareInfo
+import com.droidinspector.domain.model.SafFileItem
+import com.droidinspector.domain.model.SensorInfo
+import com.droidinspector.domain.model.StorageInfo
+import com.droidinspector.domain.model.SystemSecurityInfo
 import com.droidinspector.domain.repository.DeviceRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,135 +52,225 @@ class DeviceRepositoryImpl @Inject constructor(
 ) : DeviceRepository {
 
     override fun getDeviceSummary(): DeviceSummary {
+        val manufacturer = (Build.MANUFACTURER ?: "Inconnu").replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
+        }
         return DeviceSummary(
-            deviceName = "${Build.MANUFACTURER} ${Build.MODEL}",
-            model = Build.MODEL,
-            manufacturer = Build.MANUFACTURER,
-            androidVersion = Build.VERSION.RELEASE,
+            deviceName = "$manufacturer ${Build.MODEL}",
+            model = Build.MODEL ?: "Inconnu",
+            manufacturer = manufacturer,
+            brand = Build.BRAND ?: "Inconnu",
+            product = Build.PRODUCT ?: "Inconnu",
+            hardware = Build.HARDWARE ?: "Inconnu",
+            androidVersion = Build.VERSION.RELEASE ?: "Inconnu",
             apiLevel = Build.VERSION.SDK_INT,
-            securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Build.VERSION.SECURITY_PATCH else "N/A",
-            buildNumber = Build.DISPLAY,
-            board = Build.BOARD,
-            bootloader = Build.BOOTLOADER,
-            radioVersion = Build.getRadioVersion() ?: "Unknown"
+            securityPatch = Build.VERSION.SECURITY_PATCH ?: "N/D",
+            buildNumber = Build.DISPLAY ?: "N/D",
+            buildTimeMillis = Build.TIME,
+            board = Build.BOARD ?: "N/D",
+            bootloader = Build.BOOTLOADER ?: "N/D",
+            fingerprint = Build.FINGERPRINT ?: "N/D",
+            kernelVersion = readKernelVersion(),
+            javaVmVersion = System.getProperty("java.vm.version") ?: "ART"
         )
     }
 
+    override fun getSystemSecurityInfo(): SystemSecurityInfo {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        val encryptionStatus = when (dpm?.storageEncryptionStatus) {
+            DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE -> "Chiffrement actif"
+            DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER -> "Chiffrement par utilisateur (FBE)"
+            DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_DEFAULT_KEY -> "Actif (clé par défaut)"
+            DevicePolicyManager.ENCRYPTION_STATUS_INACTIVE -> "Inactif"
+            else -> "Non disponible"
+        }
+
+        val seLinuxMode = try {
+            val enforceFile = File("/sys/fs/selinux/enforce")
+            if (enforceFile.exists() && enforceFile.canRead()) {
+                if (enforceFile.readText().trim() == "1") "Enforcing (Strict)" else "Permissive"
+            } else {
+                "Enforcing (Restreint par l'OS)"
+            }
+        } catch (_: Exception) {
+            "Protégé par l'OS"
+        }
+
+        val rootPaths = listOf(
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/sbin/su",
+            "/su/bin/su",
+            "/data/local/xbin/su"
+        )
+        val rootDetected = rootPaths.any { File(it).exists() }
+        val isDebugBuild = (Build.TAGS ?: "").contains("test-keys")
+
+        return SystemSecurityInfo(
+            encryptionStatus = encryptionStatus,
+            seLinuxMode = seLinuxMode,
+            rootDetected = rootDetected,
+            isDebugBuild = isDebugBuild
+        )
+    }
+
+    override fun getCurrentBatterySnapshot(): BatteryInfo {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        return parseBatteryIntent(intent)
+    }
+
     override fun getBatteryInfo(): Flow<BatteryInfo> = callbackFlow {
-        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        // Emit immediate snapshot first
+        trySend(getCurrentBatterySnapshot())
 
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent == null) return
-
-                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-                val percentage = if (level >= 0 && scale > 0) (level * 100) / scale else 0
-
-                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-                val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                        status == BatteryManager.BATTERY_STATUS_FULL
-
-                val source = when (intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)) {
-                    BatteryManager.BATTERY_PLUGGED_AC -> "Secteur (AC)"
-                    BatteryManager.BATTERY_PLUGGED_USB -> "Port USB"
-                    BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Sans fil (induction)"
-                    else -> if (isCharging) "En charge" else "Batterie"
+                if (intent != null) {
+                    trySend(parseBatteryIntent(intent))
                 }
-
-                val health = when (
-                    intent.getIntExtra(
-                        BatteryManager.EXTRA_HEALTH,
-                        BatteryManager.BATTERY_HEALTH_UNKNOWN
-                    )
-                ) {
-                    BatteryManager.BATTERY_HEALTH_GOOD -> "Bonne"
-                    BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Surchauffe"
-                    BatteryManager.BATTERY_HEALTH_DEAD -> "Défectueuse"
-                    BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE -> "Surtension"
-                    BatteryManager.BATTERY_HEALTH_COLD -> "Trop froide"
-                    BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE -> "Défaut non précisé"
-                    else -> "Inconnue"
-                }
-
-                val technology = intent.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY)
-                    ?.takeIf { it.isNotBlank() } ?: "Non précisée"
-                val temperatureCelsius = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10f
-                val voltage = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0)
-
-                // Vendor dependent: the system returns Long.MIN_VALUE (or 0) when unsupported.
-                val currentNow = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-                val chargeCounter = batteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
-                val cycleCount = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    intent.getIntExtra(BatteryManager.EXTRA_CYCLE_COUNT, -1)
-                } else {
-                    -1
-                }
-
-                trySend(
-                    BatteryInfo(
-                        percentage = percentage,
-                        isCharging = isCharging,
-                        chargingSource = source,
-                        health = health,
-                        technology = technology,
-                        temperatureCelsius = temperatureCelsius,
-                        voltageMilliVolts = voltage,
-                        currentNowMicroAmps = currentNow.takeIf { it != Long.MIN_VALUE },
-                        chargeCounterMicroAmpHours = chargeCounter.takeIf { it > 0L },
-                        cycleCount = cycleCount.takeIf { it > 0 }
-                    )
-                )
             }
         }
 
-        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        context.registerReceiver(receiver, filter)
 
         awaitClose {
-            context.unregisterReceiver(receiver)
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: IllegalArgumentException) {
+            }
         }
     }
 
-    @Suppress("DEPRECATION")
-    override fun getHardwareInfo(): HardwareInfo {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val memInfo = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memInfo)
+    private fun parseBatteryIntent(intent: Intent?): BatteryInfo {
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val percentage = if (level >= 0 && scale > 0) (level * 100) / scale else 0
 
-        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val display: Display? = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
-        val metrics = DisplayMetrics()
-        var refreshRate = 0f
-        if (display != null) {
-            display.getRealMetrics(metrics)
-            refreshRate = display.refreshRate
-        } else {
-            metrics.setTo(context.resources.displayMetrics)
+        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+
+        val statusLabel = when {
+            status == BatteryManager.BATTERY_STATUS_FULL -> "Pleine"
+            status == BatteryManager.BATTERY_STATUS_CHARGING -> "En charge"
+            status == BatteryManager.BATTERY_STATUS_DISCHARGING -> "En décharge"
+            status == BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Non branché"
+            else -> "Sur batterie"
         }
 
+        val chargePlug = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+        val source = when (chargePlug) {
+            BatteryManager.BATTERY_PLUGGED_AC -> "Secteur (AC)"
+            BatteryManager.BATTERY_PLUGGED_USB -> "Port USB"
+            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Sans fil"
+            else -> if (isCharging) "Alimentation externe" else "Batterie"
+        }
+
+        val healthVal = intent?.getIntExtra(BatteryManager.EXTRA_HEALTH, BatteryManager.BATTERY_HEALTH_UNKNOWN)
+            ?: BatteryManager.BATTERY_HEALTH_UNKNOWN
+        val health = when (healthVal) {
+            BatteryManager.BATTERY_HEALTH_GOOD -> "Bonne santé"
+            BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Surchauffe"
+            BatteryManager.BATTERY_HEALTH_DEAD -> "Défectueuse"
+            BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE -> "Surtension"
+            BatteryManager.BATTERY_HEALTH_COLD -> "Température basse"
+            else -> "Normale"
+        }
+
+        val technology = intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY)?.takeIf { it.isNotBlank() } ?: "Li-ion"
+        val tempTenths = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+        val voltage = intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val currentNow = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            ?.takeIf { it != Int.MIN_VALUE && it != 0 }
+        val chargeCounter = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            ?.takeIf { it != Int.MIN_VALUE && it > 0 }
+
+        return BatteryInfo(
+            percentage = percentage,
+            isCharging = isCharging,
+            statusLabel = statusLabel,
+            chargingSource = source,
+            health = health,
+            technology = technology,
+            temperatureCelsius = tempTenths / 10f,
+            voltageMilliVolts = voltage,
+            currentMicroAmps = currentNow,
+            chargeCounterMicroAh = chargeCounter
+        )
+    }
+
+    override suspend fun getHardwareInfo(): HardwareInfo = withContext(Dispatchers.IO) {
+        val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        actManager.getMemoryInfo(memInfo)
+
+        val displayMetrics = context.resources.displayMetrics
         val coreCount = Runtime.getRuntime().availableProcessors()
-        val cores = (0 until coreCount).map { index ->
-            CpuCore(
-                index = index,
-                minFrequencyMhz = readCpuFrequencyMhz(index, "cpuinfo_min_freq"),
-                maxFrequencyMhz = readCpuFrequencyMhz(index, "cpuinfo_max_freq")
+
+        val coreFrequencies = (0 until coreCount).map { core ->
+            CpuCoreFrequency(
+                coreIndex = core,
+                currentKhz = readSysLong("/sys/devices/system/cpu/cpu$core/cpufreq/scaling_cur_freq"),
+                minKhz = readSysLong("/sys/devices/system/cpu/cpu$core/cpufreq/cpuinfo_min_freq"),
+                maxKhz = readSysLong("/sys/devices/system/cpu/cpu$core/cpufreq/cpuinfo_max_freq")
             )
         }
 
-        return HardwareInfo(
-            socName = socName(),
-            cpuArchitecture = System.getProperty("os.arch") ?: Build.SUPPORTED_ABIS.firstOrNull() ?: "Inconnue",
+        // An application Context is not tied to a display: Context.display throws on Android 11+.
+        // DisplayManager works from any Context.
+        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val defaultDisplay: Display? = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
+
+        val refreshRate = defaultDisplay?.refreshRate ?: 60f
+        val hdrSupported = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            (defaultDisplay?.hdrCapabilities?.supportedHdrTypes?.isNotEmpty()) == true
+        } else {
+            false
+        }
+
+        val glEsVersion = actManager.deviceConfigurationInfo.glEsVersion ?: "3.0"
+        val pm = context.packageManager
+        val vulkanSupported = pm.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION)
+
+        val candidateFeatures = listOf(
+            PackageManager.FEATURE_BLUETOOTH_LE to "Bluetooth Low Energy",
+            PackageManager.FEATURE_NFC to "NFC",
+            PackageManager.FEATURE_FINGERPRINT to "Capteur d'empreinte",
+            PackageManager.FEATURE_CAMERA_FLASH to "Flash Caméra",
+            PackageManager.FEATURE_LOCATION_GPS to "Récepteur GPS",
+            PackageManager.FEATURE_WIFI_DIRECT to "Wi-Fi Direct",
+            PackageManager.FEATURE_SENSOR_GYROSCOPE to "Gyroscope matériel",
+            PackageManager.FEATURE_SENSOR_BAROMETER to "Baromètre matériel",
+            PackageManager.FEATURE_USB_HOST to "Mode USB Host (OTG)"
+        ).filter { (feature, _) -> pm.hasSystemFeature(feature) }.map { it.second }
+
+        val manufacturer = (Build.MANUFACTURER ?: "Inconnu").replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
+        }
+
+        HardwareInfo(
+            manufacturer = manufacturer,
+            model = Build.MODEL ?: "Inconnu",
+            product = Build.PRODUCT ?: "Inconnu",
+            cpuArchitecture = System.getProperty("os.arch") ?: Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
             abiList = Build.SUPPORTED_ABIS.toList(),
             coreCount = coreCount,
-            cores = cores,
+            coreFrequencies = coreFrequencies,
             ramTotalBytes = memInfo.totalMem,
             ramAvailableBytes = memInfo.availMem,
-            swapTotalBytes = readMeminfoKb("SwapTotal")?.times(1024L),
-            swapFreeBytes = readMeminfoKb("SwapFree")?.times(1024L),
-            screenResolution = "${metrics.widthPixels} x ${metrics.heightPixels}",
-            screenDensityDpi = metrics.densityDpi,
+            ramThresholdBytes = memInfo.threshold,
+            isLowMemory = memInfo.lowMemory,
+            screenResolution = "${displayMetrics.widthPixels} x ${displayMetrics.heightPixels} px",
+            screenDensityDpi = displayMetrics.densityDpi,
+            screenDensityBucket = FormatUtils.getDensityBucket(displayMetrics.densityDpi),
             screenRefreshRateHz = refreshRate,
-            openGlEsVersion = activityManager.deviceConfigurationInfo.glEsVersion
+            hdrSupported = hdrSupported,
+            glEsVersion = "OpenGL ES $glEsVersion",
+            vulkanSupported = vulkanSupported,
+            hardwareFeatures = candidateFeatures
         )
     }
 
@@ -182,7 +290,11 @@ class DeviceRepositoryImpl @Inject constructor(
                 Sensor.TYPE_LINEAR_ACCELERATION -> "Accélération linéaire"
                 Sensor.TYPE_ROTATION_VECTOR -> "Vecteur de rotation"
                 Sensor.TYPE_STEP_COUNTER -> "Compteur de pas"
-                else -> sensor.stringType ?: "Autre capteur"
+                Sensor.TYPE_STEP_DETECTOR -> "Détecteur de pas"
+                Sensor.TYPE_AMBIENT_TEMPERATURE -> "Température ambiante"
+                Sensor.TYPE_RELATIVE_HUMIDITY -> "Humidité relative"
+                else -> sensor.stringType?.substringAfterLast('.')?.replace('_', ' ')
+                    ?.replaceFirstChar { it.uppercase() } ?: "Capteur"
             }
 
             SensorInfo(
@@ -194,7 +306,8 @@ class DeviceRepositoryImpl @Inject constructor(
                 version = sensor.version,
                 maxRange = sensor.maximumRange,
                 resolution = sensor.resolution,
-                powerMa = sensor.power
+                powerMa = sensor.power,
+                minDelayUs = sensor.minDelay
             )
         }
     }
@@ -225,43 +338,84 @@ class DeviceRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getStorageInfo(): StorageInfo {
-        val volumes = mutableListOf<StorageVolumeInfo>()
+    override suspend fun getStorageInfo(): StorageInfo = withContext(Dispatchers.IO) {
+        val path = Environment.getDataDirectory()
+        val stat = StatFs(path.path)
+        val blockSize = stat.blockSizeLong
+        val totalBlocks = stat.blockCountLong
+        val availableBlocks = stat.availableBlocksLong
 
-        val data = statVolume("Données (/data)", Environment.getDataDirectory())
-        if (data != null) volumes.add(data)
+        val totalBytes = totalBlocks * blockSize
+        val availableBytes = availableBlocks * blockSize
+        val usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L)
 
-        val system = statVolume("Système (/system)", Environment.getRootDirectory())
-        if (system != null) volumes.add(system)
-
-        // Entries after the first one are removable volumes (SD card, USB drive).
-        context.getExternalFilesDirs(null)
-            .drop(1)
-            .filterNotNull()
-            .forEachIndexed { index, directory ->
-                val volume = statVolume("Carte SD / USB ${index + 1}", directory)
-                if (volume != null) volumes.add(volume)
-            }
-
-        val total = data?.totalBytes ?: 0L
-        val available = data?.availableBytes ?: 0L
-        return StorageInfo(
-            totalBytes = total,
-            availableBytes = available,
-            usedBytes = total - available,
-            volumes = volumes
+        StorageInfo(
+            totalBytes = totalBytes,
+            availableBytes = availableBytes,
+            usedBytes = usedBytes,
+            blockSizeBytes = blockSize,
+            dataPath = path.absolutePath
         )
     }
 
-    override suspend fun getInstalledApplications(includeSystemApps: Boolean): List<AppPackageInfo> {
+    override suspend fun listSafDirectory(treeUri: Uri, documentId: String?): List<SafFileItem> =
+        withContext(Dispatchers.IO) {
+            val result = mutableListOf<SafFileItem>()
+            val targetDocId = documentId ?: DocumentsContract.getTreeDocumentId(treeUri)
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, targetDocId)
+
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED
+            )
+
+            try {
+                context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    val sizeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+                    val modCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+
+                    while (cursor.moveToNext()) {
+                        val childId = cursor.getString(idCol) ?: continue
+                        val name = cursor.getString(nameCol) ?: "Sans nom"
+                        val mime = cursor.getString(mimeCol) ?: "application/octet-stream"
+                        val size = if (!cursor.isNull(sizeCol)) cursor.getLong(sizeCol) else 0L
+                        val modified = if (!cursor.isNull(modCol)) cursor.getLong(modCol) else 0L
+                        val isDir = mime == DocumentsContract.Document.MIME_TYPE_DIR
+
+                        result.add(
+                            SafFileItem(
+                                name = name,
+                                uriString = childId,
+                                isDirectory = isDir,
+                                sizeBytes = size,
+                                lastModifiedMillis = modified,
+                                mimeType = mime
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                return@withContext emptyList()
+            }
+
+            result.sortedWith(compareBy<SafFileItem> { !it.isDirectory }.thenBy { it.name.lowercase() })
+        }
+
+    override suspend fun getInstalledApplications(): List<AppPackageInfo> = withContext(Dispatchers.IO) {
         val pm = context.packageManager
+        @Suppress("DEPRECATION")
         val packages = pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
 
-        return packages.mapNotNull { pkg ->
-            val isSys = (pkg.applicationInfo?.flags?.and(ApplicationInfo.FLAG_SYSTEM)) != 0
-            if (!includeSystemApps && isSys) return@mapNotNull null
-
-            val appName = pkg.applicationInfo?.loadLabel(pm)?.toString() ?: pkg.packageName
+        packages.mapNotNull { pkg ->
+            val appInfo = pkg.applicationInfo ?: return@mapNotNull null
+            val isSys = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val appName = appInfo.loadLabel(pm).toString()
             val permissions = pkg.requestedPermissions?.toList() ?: emptyList()
 
             @Suppress("DEPRECATION")
@@ -269,6 +423,19 @@ class DeviceRepositoryImpl @Inject constructor(
                 pkg.longVersionCode
             } else {
                 pkg.versionCode.toLong()
+            }
+
+            val apkSize = try {
+                val sourceFile = appInfo.sourceDir?.let { File(it) }
+                if (sourceFile != null && sourceFile.exists()) sourceFile.length() else 0L
+            } catch (_: Exception) {
+                0L
+            }
+
+            val iconBitmap = try {
+                drawableToBitmap(appInfo.loadIcon(pm))
+            } catch (_: Exception) {
+                null
             }
 
             AppPackageInfo(
@@ -279,67 +446,50 @@ class DeviceRepositoryImpl @Inject constructor(
                 isSystemApp = isSys,
                 firstInstallTime = pkg.firstInstallTime,
                 lastUpdateTime = pkg.lastUpdateTime,
-                targetSdkVersion = pkg.applicationInfo?.targetSdkVersion ?: 34,
-                requestedPermissions = permissions
+                targetSdkVersion = appInfo.targetSdkVersion,
+                minSdkVersion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) appInfo.minSdkVersion else 26,
+                apkSizeBytes = apkSize,
+                requestedPermissions = permissions,
+                iconBitmap = iconBitmap
             )
-        }
+        }.sortedBy { it.appName.lowercase() }
     }
 
-    private fun statVolume(label: String, directory: File): StorageVolumeInfo? {
+    private fun drawableToBitmap(drawable: Drawable): Bitmap? {
+        if (drawable is BitmapDrawable && drawable.bitmap != null) {
+            return Bitmap.createScaledBitmap(drawable.bitmap, 72, 72, true)
+        }
+        val bitmap = Bitmap.createBitmap(72, 72, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
+    }
+
+    private fun readSysLong(path: String): Long? {
         return try {
-            val stat = StatFs(directory.path)
-            StorageVolumeInfo(
-                label = label,
-                path = directory.path,
-                totalBytes = stat.totalBytes,
-                availableBytes = stat.availableBytes
-            )
-        } catch (e: Exception) {
+            val file = File(path)
+            if (file.exists() && file.canRead()) {
+                file.readText().trim().toLongOrNull()
+            } else {
+                null
+            }
+        } catch (_: Exception) {
             null
         }
     }
 
-    private fun socName(): String {
-        val parts = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (Build.SOC_MANUFACTURER.isNotBlank() && Build.SOC_MANUFACTURER != Build.UNKNOWN) {
-                parts.add(Build.SOC_MANUFACTURER)
-            }
-            if (Build.SOC_MODEL.isNotBlank() && Build.SOC_MODEL != Build.UNKNOWN) {
-                parts.add(Build.SOC_MODEL)
-            }
-        }
-        if (parts.isEmpty()) {
-            parts.add(Build.HARDWARE)
-        }
-        return parts.joinToString(" ")
-    }
-
-    /** Reads a cpufreq file (in kHz) and returns MHz, or null if the kernel hides it from apps. */
-    private fun readCpuFrequencyMhz(core: Int, fileName: String): Long? {
+    private fun readKernelVersion(): String {
+        val osVersion = System.getProperty("os.version")
         return try {
-            File("/sys/devices/system/cpu/cpu$core/cpufreq/$fileName")
-                .readText()
-                .trim()
-                .toLongOrNull()
-                ?.div(1000L)
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /** Reads one /proc/meminfo entry (in kB), or null if unavailable. */
-    private fun readMeminfoKb(key: String): Long? {
-        return try {
-            File("/proc/meminfo").useLines { lines ->
-                lines.firstOrNull { it.startsWith("$key:") }
-                    ?.substringAfter(":")
-                    ?.trim()
-                    ?.substringBefore(" ")
-                    ?.toLongOrNull()
+            val procVersion = File("/proc/version")
+            if (procVersion.exists() && procVersion.canRead()) {
+                procVersion.readText().trim().take(80)
+            } else {
+                osVersion ?: "Linux Kernel"
             }
-        } catch (e: Exception) {
-            null
+        } catch (_: Exception) {
+            osVersion ?: "Linux Kernel"
         }
     }
 }
